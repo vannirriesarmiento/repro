@@ -4,6 +4,7 @@ const { Payload } = require('dialogflow-fulfillment');
 const functions = require('firebase-functions');
 const config = require('../config/keys');
 const admin = require('firebase-admin');
+var gibberish = require('gibberish-detector');
 
 admin.initializeApp({
     credential: admin.credential.cert({
@@ -34,8 +35,8 @@ module.exports = app => {
     app.post('/', async (req, res) => {
         const agent = new WebhookClient({ request: req, response: res });
         const tempsessionID = req.body.session.split("/").reverse()[0];
-        // var sessionID = tempsessionID.toString().replace("repro-bot-session", "");
-        var sessionID = 'e3acc2b5-4694-4d8e-9c27-3532a81ebf6a';
+        var sessionID = tempsessionID.toString().replace("repro-bot-session", "");
+        // var sessionID = 'e3acc2b5-4694-4d8e-9c27-3532a81ebf6a';
         let counter = 1;
 
         function randomgenerator(min, max) {
@@ -142,29 +143,48 @@ module.exports = app => {
             });
         }
 
+        function detectGibberish(str){
+            var checker = gibberish.detect(str);
+            
+            if(checker === 1){
+                return false;
+            } else {
+                return true;
+            }
+        }        
+
         function fullname(agent) {
+            let fullname = "";
             let fname = agent.parameters.fname;
             let mname = agent.parameters.mname.toLowerCase();
             let lname = agent.parameters.lname;
-            let fullname = "";
+            let namelength = fname.length + mname.length + lname.length;
 
             if (mname == "none") {
+                namelength = namelength - 4;
                 fullname = fname + " " + lname;
             } else {
                 fullname = fname + " " + mname + " " + lname;
             }
 
-            var regexsp = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/;
             var regexnumber = /\d/;
+            var regexsp = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]+/;
             var regexemoji = /(?:[\u2700-\u27bf]|(?:\ud83c[\udde6-\uddff]){2}|[\ud800-\udbff][\udc00-\udfff]|[\u0023-\u0039]\ufe0f?\u20e3|\u3299|\u3297|\u303d|\u3030|\u24c2|\ud83c[\udd70-\udd71]|\ud83c[\udd7e-\udd7f]|\ud83c\udd8e|\ud83c[\udd91-\udd9a]|\ud83c[\udde6-\uddff]|\ud83c[\ude01-\ude02]|\ud83c\ude1a|\ud83c\ude2f|\ud83c[\ude32-\ude3a]|\ud83c[\ude50-\ude51]|\u203c|\u2049|[\u25aa-\u25ab]|\u25b6|\u25c0|[\u25fb-\u25fe]|\u00a9|\u00ae|\u2122|\u2139|\ud83c\udc04|[\u2600-\u26FF]|\u2b05|\u2b06|\u2b07|\u2b1b|\u2b1c|\u2b50|\u2b55|\u231a|\u231b|\u2328|\u23cf|[\u23e9-\u23f3]|[\u23f8-\u23fa]|\ud83c\udccf|\u2934|\u2935|[\u2190-\u21ff])/g;
-
 
             if (regexsp.test(fullname) || regexnumber.test(fullname) || regexemoji.test(fullname)) {
                 agent.add(`Please refrain from using special characters, emojis, or numbers. Type your first name/s again.`);
             } else {
                 const uppercase_fullname = fullname.toUpperCase();
+
                 agent.add(uppercase_fullname);
-                agent.add(`Would you like to proceed with this?`);
+
+                if (namelength <= 6) {
+                    agent.add(`The name you provided is only ` + namelength + ` characters long. Do you intend to use this?`);
+                } else if (detectGibberish(fullname)) {
+                    agent.add(`It looks that the name you entered has been flagged as invalid. Are you sure you want to use this?`);
+                } else {
+                    agent.add(`Would you like to proceed with this?`);
+                }
                 agent.context.set({ name: "fullname-yes-followup", lifespan: 11, "parameters": { "fullname": uppercase_fullname } });
                 confirmation();
             }
@@ -1980,7 +2000,7 @@ module.exports = app => {
                 if (test) {
                     if (endemics_verdict == "out" || endemics_verdict == "good") {
                         tests = "Out of Scope";
-                        
+
                         agent.add("Redirecting...");
                         agent.setFollowupEvent('outofscope');
                     } else {
